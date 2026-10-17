@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from fractions import Fraction
+from functools import partial
 from itertools import product
 
 import pytest
@@ -14,7 +15,7 @@ from tqec.computation.correlation import (
     ZXNode,
     find_correlation_surfaces,
 )
-from tqec.gallery import memory
+from tqec.gallery import cnot, cz, memory, move_rotation, three_cnots
 from tqec.gallery.h import h
 from tqec.gallery.steane_encoding import steane_encoding
 from tqec.interop.pyzx.positioned import PositionedZX
@@ -323,6 +324,53 @@ def test_correlation_logical_h(
     obs_basis: Basis | None, num_surfaces: int, external_stabilizers: set[str]
 ) -> None:
     g = h(obs_basis)
+    correlation_surfaces = g.find_correlation_surfaces()
+    assert len(correlation_surfaces) == num_surfaces
+    assert {s.external_stabilizer_on_graph(g) for s in correlation_surfaces} == external_stabilizers
+
+
+@pytest.mark.parametrize(
+    "build_graph, num_surfaces, external_stabilizers",
+    [
+        pytest.param(partial(cnot, Basis.X), 2, {"XXIX", "XXXI"}, id="cnot_x"),
+        pytest.param(partial(cnot, Basis.Z), 2, {"ZZII", "IZZZ"}, id="cnot_z"),
+        pytest.param(cnot, 4, {"ZIZI", "ZZIZ", "XIXX", "XXXI"}, id="cnot_open"),
+        pytest.param(partial(cz, ["ZZ -> ZZ"]), 2, {"IIZZ", "ZZII"}, id="cz_zz"),
+        pytest.param(partial(cz, ["XI -> XZ"]), 2, {"XXIZ", "XXZI"}, id="cz_xi_xz"),
+        pytest.param(cz, 4, {"XZXI", "ZIZI", "ZXIX", "XIXZ"}, id="cz_open"),
+        pytest.param(partial(move_rotation, Basis.X), 1, {"XX"}, id="move_rotation_x"),
+        pytest.param(partial(move_rotation, Basis.Z), 1, {"ZZ"}, id="move_rotation_z"),
+        pytest.param(move_rotation, 2, {"XX", "ZZ"}, id="move_rotation_open"),
+        pytest.param(
+            partial(steane_encoding, Basis.X),
+            3,
+            {"IXXIIXX", "XIXIXXI", "XIIXIXX"},
+            id="steane_encoding_x",
+        ),
+        pytest.param(
+            partial(steane_encoding, Basis.Z),
+            4,
+            {"ZZIIIZI", "IZZIZII", "IIZZIZI", "IZZIIZZ"},
+            id="steane_encoding_z",
+        ),
+        pytest.param(
+            partial(three_cnots, Basis.X),
+            3,
+            {"IIXXIX", "XXXIXI", "XXXXII"},
+            id="three_cnots_x",
+        ),
+        pytest.param(
+            partial(three_cnots, Basis.Z),
+            3,
+            {"IZIZZZ", "IZZIIZ", "ZZIIII"},
+            id="three_cnots_z",
+        ),
+    ],
+)
+def test_correlation_surfaces_of_gallery_graphs(
+    build_graph: Callable[[], BlockGraph], num_surfaces: int, external_stabilizers: set[str]
+) -> None:
+    g = build_graph()
     correlation_surfaces = g.find_correlation_surfaces()
     assert len(correlation_surfaces) == num_surfaces
     assert {s.external_stabilizer_on_graph(g) for s in correlation_surfaces} == external_stabilizers

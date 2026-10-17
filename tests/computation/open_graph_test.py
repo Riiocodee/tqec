@@ -1,13 +1,17 @@
 import hashlib
+from collections.abc import Callable
 from typing import Literal
 
 import networkx as nx
 import pytest
 
 from tqec.compile.compile import compile_block_graph
+from tqec.computation.block_graph import BlockGraph
 from tqec.computation.open_graph import FilledGraph, fill_ports_for_minimal_simulation
 from tqec.gallery.cnot import cnot
+from tqec.gallery.cz import cz
 from tqec.gallery.move_rotation import move_rotation
+from tqec.gallery.steane_encoding import steane_encoding
 from tqec.gallery.three_cnots import three_cnots
 
 OPEN_PORT_EXAMPLES = {
@@ -64,6 +68,43 @@ def test_fill_ports_for_minimal_simulation(search_small_area_observables: bool) 
     else:
         assert set(g1.stabilizers) == {"XXXI", "XIXX"}
         assert set(g1.get_external_stabilizers()) == {"XXXI", "XXIX"}
+
+
+@pytest.mark.parametrize(
+    "build_graph, expected_stabilizers",
+    [
+        pytest.param(move_rotation, [{"XX"}, {"ZZ"}], id="move_rotation"),
+        pytest.param(
+            three_cnots,
+            [{"XIIXXI", "XXIXIX", "XXXXII"}, {"ZIIZII", "IZIZZI", "IZZIIZ"}],
+            id="three_cnots",
+        ),
+        pytest.param(
+            steane_encoding,
+            [
+                {"IIXXXIX", "IXIXXXI", "XIIXIXX"},
+                {"IIZZIZI", "ZIIZZII", "IZIZZZI", "IIIIZZZ"},
+            ],
+            id="steane_encoding",
+        ),
+    ],
+)
+def test_fill_ports_gallery_stabilizers(
+    build_graph: Callable[[], BlockGraph], expected_stabilizers: list[set[str]]
+) -> None:
+    filled_graphs = build_graph().fill_ports_for_minimal_simulation()
+    assert len(filled_graphs) == len(expected_stabilizers)
+    # Compare as sets: the order of the filled graphs does not matter here.
+    assert {frozenset(fg.stabilizers) for fg in filled_graphs} == {
+        frozenset(stabilizers) for stabilizers in expected_stabilizers
+    }
+
+
+def test_fill_ports_cz() -> None:
+    filled_graphs = cz().fill_ports_for_minimal_simulation()
+    assert len(filled_graphs) == 2
+    assert filled_graphs[0].graph == cz(["XI -> XZ", "IZ -> IZ"])
+    assert filled_graphs[1].graph == cz(["ZI -> ZI", "IX -> ZX"])
 
 
 @pytest.mark.parametrize("example", list(OPEN_PORT_EXAMPLES))

@@ -1,5 +1,6 @@
 import os
 import tempfile
+from collections.abc import Callable
 
 import pytest
 
@@ -7,7 +8,7 @@ from tests.interop.collada.read_write_test import rotated_cnot
 from tqec.computation.block_graph import BlockGraph
 from tqec.computation.cube import ConditionalCubeKind, Cube, CubeKind, LeafCubeKind, ZXCube
 from tqec.computation.pipe import PipeKind
-from tqec.gallery import cnot, memory
+from tqec.gallery import cnot, cz, memory, move_rotation, steane_encoding, three_cnots
 from tqec.utils.enums import Basis
 from tqec.utils.exceptions import TQECError
 from tqec.utils.position import Direction3D, Position3D
@@ -195,6 +196,80 @@ def test_compose_graphs() -> None:
     assert g_composed.num_ports == 2
     assert g_composed.ports == {"In": n1, "Out": Position3D(2, 0, 0)}
     assert g_composed[Position3D(1, 0, 0)].kind == ZXCube.from_str("ZXZ")
+
+
+def test_compose_two_cnots() -> None:
+    g1 = cnot()
+    g2 = cnot()
+    g_composed = g1.compose(g2, "Out_Control", "In_Control")
+    assert g_composed.num_cubes == 18
+    assert g_composed.num_ports == 4
+
+
+@pytest.mark.parametrize(
+    "build_graph, port_names, num_cubes, num_pipes, spacetime_volume, bounding_box_size",
+    [
+        pytest.param(
+            cnot,
+            {"In_Control", "Out_Control", "In_Target", "Out_Target"},
+            10,
+            9,
+            6,
+            (2, 2, 4),
+            id="cnot",
+        ),
+        pytest.param(cz, {"In_1", "Out_1", "In_2", "Out_2"}, 6, 5, 2, (2, 3, 3), id="cz"),
+        pytest.param(move_rotation, {"In", "Out"}, 5, 4, 3, (2, 2, 3), id="move_rotation"),
+        pytest.param(
+            steane_encoding,
+            {f"Port{i}" for i in range(7)},
+            19,
+            20,
+            12,
+            (4, 3, 4),
+            id="steane_encoding",
+        ),
+        pytest.param(
+            three_cnots,
+            {"In_a", "Out_a", "In_b", "Out_b", "In_c", "Out_c"},
+            12,
+            12,
+            6,
+            (4, 3, 4),
+            id="three_cnots",
+        ),
+    ],
+)
+def test_gallery_graph_structure(
+    build_graph: Callable[[], BlockGraph],
+    port_names: set[str],
+    num_cubes: int,
+    num_pipes: int,
+    spacetime_volume: int,
+    bounding_box_size: tuple[int, int, int],
+) -> None:
+    g = build_graph()
+    assert set(g.ports) == port_names
+    assert g.num_ports == len(port_names)
+    assert g.num_cubes == num_cubes
+    assert g.num_pipes == num_pipes
+    assert g.spacetime_volume == spacetime_volume
+    # Every port is a leaf cube in these graphs.
+    assert len(g.leaf_cubes) == len(port_names)
+    assert g.bounding_box_size() == bounding_box_size
+
+
+@pytest.mark.parametrize("build_graph", [cnot, move_rotation, steane_encoding, three_cnots])
+@pytest.mark.parametrize("obs_basis", [Basis.X, Basis.Z])
+def test_gallery_graph_filled_ports(
+    build_graph: Callable[[Basis | None], BlockGraph], obs_basis: Basis
+) -> None:
+    open_graph = build_graph(None)
+    filled_graph = build_graph(obs_basis)
+    assert filled_graph.num_ports == 0
+    assert filled_graph.num_cubes == open_graph.num_cubes
+    assert filled_graph.num_pipes == open_graph.num_pipes
+    assert len(filled_graph.leaf_cubes) == len(open_graph.leaf_cubes)
 
 
 def test_single_connected() -> None:
